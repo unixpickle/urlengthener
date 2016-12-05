@@ -16,6 +16,9 @@ const seekBufferSize = 4096
 // integer keys and raw byte values.
 type KVStore struct {
 	file *os.File
+
+	// TODO: use a read-lock and multiple *os.File instances
+	// to do multiple searches at once.
 	lock sync.Mutex
 }
 
@@ -78,6 +81,10 @@ func (k *KVStore) Get(key int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if max == 0 {
+		return nil, nil
+	}
+	max--
 	min := int64(0)
 
 	for max > min {
@@ -91,7 +98,11 @@ func (k *KVStore) Get(key int64) ([]byte, error) {
 			return nil, err
 		}
 		if thisKey == key {
-			return k.readValue()
+			val, err := k.readValue()
+			if err != nil {
+				return nil, err
+			}
+			return base64.StdEncoding.DecodeString(string(val))
 		} else if thisKey < key {
 			k.readValue()
 			min, err = k.file.Seek(0, os.SEEK_CUR)
@@ -125,7 +136,7 @@ func (k *KVStore) newlineBefore(idx int64) (int64, error) {
 		k.file.Seek(idx, os.SEEK_SET)
 		buf := make([]byte, bufSize)
 		n, err := io.ReadFull(k.file, buf)
-		if err != nil && err == io.EOF {
+		if err != nil && err != io.EOF {
 			return 0, err
 		}
 		for i := n - 1; i >= 0; i-- {
@@ -139,6 +150,7 @@ func (k *KVStore) newlineBefore(idx int64) (int64, error) {
 
 // readKey reads the key at the given offset in the file.
 func (k *KVStore) readKey(idx int64) (int64, error) {
+	k.file.Seek(idx, os.SEEK_SET)
 	var b bytes.Buffer
 	for {
 		next := make([]byte, 1)
