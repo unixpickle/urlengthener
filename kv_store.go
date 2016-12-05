@@ -16,7 +16,7 @@ const seekBufferSize = 4096
 // integer keys and raw byte values.
 type KVStore struct {
 	file *os.File
-	lock sync.RWMutex
+	lock sync.Mutex
 }
 
 // NewKVStore creates a KVStore with the given file.
@@ -68,6 +68,50 @@ func (k *KVStore) Insert(value []byte) (key int64, err error) {
 	return
 }
 
+// Get returns the value for the given key, or nil if no
+// entry was found with the given key.
+func (k *KVStore) Get(key int64) ([]byte, error) {
+	k.lock.Lock()
+	k.lock.Unlock()
+
+	max, err := k.file.Seek(0, os.SEEK_END)
+	if err != nil {
+		return nil, err
+	}
+	min := int64(0)
+
+	for max > min {
+		idx := (max + min) / 2
+		newlineIdx, err := k.newlineBefore(idx)
+		if err != nil {
+			return nil, err
+		}
+		thisKey, err := k.readKey(newlineIdx + 1)
+		if err != nil {
+			return nil, err
+		}
+		if thisKey == key {
+			return k.readValue()
+		} else if thisKey < key {
+			k.readValue()
+			min, err = k.file.Seek(0, os.SEEK_CUR)
+			if err != nil {
+				return nil, err
+			}
+			// Want min to point to the first byte of the next entry,
+			// rather than the newline right before the next entry,
+			// ensuring that we exclude the current entry from later
+			// search iterations.
+			min++
+		} else if thisKey > key {
+			// This is a non-inclusive upper bound, so the current
+			// entry will never be considered again.
+			max = newlineIdx
+		}
+	}
+	return nil, nil
+}
+
 // newlineBefore finds the index of the first newline
 // before the given index in the file.
 // If none exists, -1 is returned.
@@ -107,4 +151,23 @@ func (k *KVStore) readKey(idx int64) (int64, error) {
 		b.Write(next)
 	}
 	return strconv.ParseInt(b.String(), 10, 64)
+}
+
+// readValue reads the data at the current file offset,
+// stopping when it hits a newline.
+// Upon success, the file will be seeked to the newline.
+// This is meant to be used directly after readKey().
+func (k *KVStore) readValue() ([]byte, error) {
+	var b bytes.Buffer
+	for {
+		next := make([]byte, 1)
+		if _, err := io.ReadFull(k.file, next); err != nil {
+			return nil, err
+		}
+		if next[0] == '\n' {
+			break
+		}
+		b.Write(next)
+	}
+	return b.Bytes(), nil
 }
