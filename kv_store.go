@@ -25,17 +25,9 @@ type KVStore struct {
 // NewKVStore creates a KVStore with the given file.
 // If the storage file does not exist, it is created.
 func NewKVStore(path string) (*KVStore, error) {
-	var f *os.File
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		f, err = os.Create(path)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		f, err = os.Open(path)
-		if err != nil {
-			return nil, err
-		}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0700)
+	if err != nil {
+		return nil, err
 	}
 	return &KVStore{file: f}, nil
 }
@@ -121,6 +113,13 @@ func (k *KVStore) Get(key int64) ([]byte, error) {
 		}
 	}
 	return nil, nil
+}
+
+// Close closes the database.
+func (k *KVStore) Close() error {
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	return k.file.Close()
 }
 
 // newlineBefore finds the index of the first newline

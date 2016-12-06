@@ -69,6 +69,12 @@ func TestKVStoreBasic(t *testing.T) {
 		t.Error("unexpected result:", val)
 	}
 
+	store.Close()
+	store, err = NewKVStore(filepath.Join(tempDir, "store1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if key, err := store.Insert([]byte("static world")); err != nil {
 		t.Fatal(err)
 	} else if key != 2 {
