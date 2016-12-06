@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -20,7 +21,7 @@ const (
 )
 
 const (
-	IDBase     = 4
+	IDBase     = 2
 	MaxURLSize = 8192
 )
 
@@ -30,8 +31,8 @@ func main() {
 		os.Exit(1)
 	}
 	dbFile := os.Args[1]
-	port := os.Args[2]
-	assetDir := os.Args[3]
+	assetDir := os.Args[2]
+	port := os.Args[3]
 
 	store, err := NewKVStore(dbFile)
 	if err != nil {
@@ -44,6 +45,8 @@ func main() {
 	http.HandleFunc("/lengthened/", handler.ServeLengthened)
 	http.HandleFunc("/lengthen", handler.ServeLengthen)
 	http.HandleFunc("/", handler.ServeRoot)
+
+	// TODO: catch kill signal and properly close DB.
 
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to listen:", err)
@@ -63,7 +66,8 @@ type Handler struct {
 }
 
 func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
-	h.serveNamedAsset(w, r, path.Base(r.URL.Path))
+	prefix := "/asset"
+	h.serveNamedAsset(w, r, r.URL.Path[len(prefix):])
 }
 
 func (h *Handler) ServeLengthened(w http.ResponseWriter, r *http.Request) {
@@ -135,14 +139,10 @@ func (h *Handler) ServeLengthen(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ServeRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" && r.URL.Path != "" {
-		h.serveNotFound(w, r)
+		h.serveNamedAsset(w, r, NotFoundAsset)
 		return
 	}
 	h.serveNamedAsset(w, r, HomepageAsset)
-}
-
-func (h *Handler) serveNotFound(w http.ResponseWriter, r *http.Request) {
-	h.serveNamedAsset(w, r, NotFoundAsset)
 }
 
 func (h *Handler) serveNamedAsset(w http.ResponseWriter, r *http.Request, name string) {
@@ -150,7 +150,7 @@ func (h *Handler) serveNamedAsset(w http.ResponseWriter, r *http.Request, name s
 	f, err := dir.Open(name)
 	if err != nil {
 		if name != NotFoundAsset {
-			h.serveNotFound(w, r)
+			h.serveNamedAsset(w, r, NotFoundAsset)
 		} else {
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -159,5 +159,18 @@ func (h *Handler) serveNamedAsset(w http.ResponseWriter, r *http.Request, name s
 		return
 	}
 	defer f.Close()
-	http.ServeContent(w, r, name, time.Now(), f)
+
+	statusCodes := map[string]int{
+		NotFoundAsset:      404,
+		InternalErrorAsset: 500,
+		BadRequestAsset:    400,
+	}
+	if code, ok := statusCodes[name]; ok {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(code)
+		io.Copy(w, f)
+		return
+	} else {
+		http.ServeContent(w, r, name, time.Now(), f)
+	}
 }

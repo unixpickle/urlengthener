@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport"
+       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" type="text/css" href="asset/style/style.css">
+    <script src="asset/script/index.js"></script>
+    <title>URL Lengthener</title>
+  </head>
+  <body>
+    <div id="post-pane">
+      <label>URL:</label> <input id="url-box">
+      <br>
+      <button id="submit">Shorten</button>
+      <br>
+      <label>Delay:</label> <select id="delay">
+        <option value="" selected>None</option>
+        <option value="10">10 seconds</option>
+        <option value="10">30 seconds</option>
+        <option value="60">1 minute</option>
+      </select>
+      <br>
+      <label>Lasts:</label> <select id="expires">
+        <option value="" selected>Forever</option>
+        <option value="120">2 minutes</option>
+        <option value="300">5 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="86400">1 day</option>
+      </select>
+    </div>
+  </body>
+</html>

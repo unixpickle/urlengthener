@@ -1,0 +1,8 @@
+#post-pane {
+  position: absolute;
+  top: calc(50% -  150px);
+  left: calc(50% -  100px);
+  width: 200px;
+  height: 300px;
+  text-align: center;
+}

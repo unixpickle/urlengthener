@@ -1,0 +1,10 @@
+@post-width: 200px;
+@post-height: 300px;
+
+#post-pane {
+  position: absolute;
+  top: calc(~"50% - "(@post-height / 2));
+  left: calc(~"50% - "(@post-width / 2));
+  width: @post-width;
+  height: @post-height;
+}
