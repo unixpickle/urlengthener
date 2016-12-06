@@ -9,11 +9,14 @@ import (
 	"path"
 	"strconv"
 	"time"
+
+	"github.com/unixpickle/ratelimit"
 )
 
 const (
 	BadRequestAsset    = "400.html"
 	NotFoundAsset      = "404.html"
+	RateLimitAsset     = "429.html"
 	InternalErrorAsset = "500.html"
 	HomepageAsset      = "index.html"
 	ExpiredAsset       = "expired.html"
@@ -25,14 +28,29 @@ const (
 	MaxURLSize = 8192
 )
 
+const (
+	RateLimitSlice = time.Hour / 2
+	RateLimitMax   = 200
+)
+
 func main() {
-	if len(os.Args) != 4 {
-		fmt.Fprintln(os.Stderr, "Usage: urlengthener db_file asset_dir port")
+	if len(os.Args) != 4 && len(os.Args) != 5 {
+		fmt.Fprintln(os.Stderr, "Usage: urlengthener db_file asset_dir port [num_proxies]")
 		os.Exit(1)
 	}
 	dbFile := os.Args[1]
 	assetDir := os.Args[2]
 	port := os.Args[3]
+
+	numProxies := 0
+	if len(os.Args) == 5 {
+		proxies, err := strconv.Atoi(os.Args[4])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Invalid proxy count:", os.Args[4])
+			os.Exit(4)
+		}
+		numProxies = proxies
+	}
 
 	store, err := NewKVStore(dbFile)
 	if err != nil {
@@ -40,7 +58,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := &Handler{Store: store, Assets: assetDir}
+	handler := &Handler{
+		Store:   store,
+		Assets:  assetDir,
+		Namer:   ratelimit.HTTPRemoteNamer{NumProxies: numProxies},
+		Limiter: ratelimit.NewTimeSliceLimiter(RateLimitSlice, RateLimitMax),
+	}
 	http.HandleFunc("/asset/", handler.ServeAsset)
 	http.HandleFunc("/lengthened/", handler.ServeLengthened)
 	http.HandleFunc("/lengthen", handler.ServeLengthen)
@@ -61,8 +84,10 @@ type DBEntry struct {
 }
 
 type Handler struct {
-	Store  *KVStore
-	Assets string
+	Store   *KVStore
+	Assets  string
+	Namer   ratelimit.HTTPRemoteNamer
+	Limiter *ratelimit.TimeSliceLimiter
 }
 
 func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +127,11 @@ func (h *Handler) ServeLengthened(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ServeLengthen(w http.ResponseWriter, r *http.Request) {
+	if h.Limiter.Limit(h.Namer.Name(r)) {
+		h.serveNamedAsset(w, r, RateLimitAsset)
+		return
+	}
+
 	shortenURL := r.FormValue("url")
 	delay := r.FormValue("delay")
 	duration := r.FormValue("duration")
@@ -161,9 +191,10 @@ func (h *Handler) serveNamedAsset(w http.ResponseWriter, r *http.Request, name s
 	defer f.Close()
 
 	statusCodes := map[string]int{
-		NotFoundAsset:      404,
-		InternalErrorAsset: 500,
-		BadRequestAsset:    400,
+		NotFoundAsset:      http.StatusNotFound,
+		RateLimitAsset:     http.StatusTooManyRequests,
+		InternalErrorAsset: http.StatusInternalServerError,
+		BadRequestAsset:    http.StatusBadRequest,
 	}
 	if code, ok := statusCodes[name]; ok {
 		w.Header().Set("Content-Type", "text/html")
